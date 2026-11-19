@@ -29,7 +29,7 @@ $__desc  = $page['desc'] ?? S('meta_description');
 <canvas id="stars" aria-hidden="true"></canvas>
 <div class="aura" aria-hidden="true"><i></i><i></i><i></i></div>
 <div class="glyphs dim" aria-hidden="true"></div>
-<div class="glyphs lit" aria-hidden="true"></div>
+<div class="glyph-spot" aria-hidden="true"><div class="glyphs lit"></div></div>
 <div class="cursor-glow" aria-hidden="true"></div>
 <div class="cursor-dot" aria-hidden="true"></div>
 <div class="cursor-ring" aria-hidden="true"><span></span></div>

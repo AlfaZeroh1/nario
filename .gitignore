@@ -1,0 +1,11 @@
+# Local secrets and data: never commit
+config.php
+sql/
+*.sql.gz
+uploads/*
+!uploads/.htaccess
+!uploads/.gitkeep
+
+# Tooling
+.preview/
+.DS_Store

@@ -16,6 +16,15 @@
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
   const DATA = window.NARIO || {};
+
+  /* Device tier. 2 = desktop/laptop, 1 = capable phone/tablet, 0 = low-end or data-saver.
+   * Lower tiers keep every effect but skip the expensive extras (live iframes, dense stars). */
+  const conn = navigator.connection || {};
+  const apple = /iPhone|iPad|Macintosh/.test(navigator.userAgent); // Safari under-reports cores; Apple devices are fine
+  const lowEnd = conn.saveData === true || (navigator.deviceMemory || 8) <= 2 || (!apple && (navigator.hardwareConcurrency || 8) <= 2);
+  const TIER = lowEnd ? 0 : (finePointer ? 2 : 1);
+  document.documentElement.classList.add('tier-' + TIER);
+  if (TIER < 2) document.documentElement.classList.add('lite');
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } },
@@ -194,31 +203,42 @@
   /* ---------------- Starfield ---------------- */
   const Stars = (() => {
     const c = qs('#stars'); if (!c) return { draw() { } };
-    const ctx = c.getContext('2d');
-    let w, h, dpr, stars = [], shoot = null;
+    const ctx = c.getContext('2d', { alpha: true });
+    let w, h, dpr, white = [], gold = [], shoot = null, last = 0, lastW = 0;
+    // Stars are tiny squares, so a high pixel ratio buys nothing but a huge canvas to upload every frame.
+    const FRAME_MS = 1000 / 30;
     function resize() {
-      dpr = Math.min(devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight;
+      // Mobile browsers fire resize when the URL bar hides; only rebuild when the width really changes.
+      if (innerWidth === lastW && white.length) { h = innerHeight; c.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return; }
+      lastW = innerWidth;
+      dpr = TIER === 2 ? Math.min(devicePixelRatio || 1, 1.5) : 1; w = innerWidth; h = innerHeight;
       c.width = w * dpr; c.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const n = Math.round(w * h / 5200);
-      stars = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, z: Math.random() * .9 + .1, tw: Math.random() * Math.PI * 2, gold: Math.random() < .18 }));
+      const n = Math.min(Math.round(w * h / (TIER === 2 ? 6000 : 9000)), TIER === 0 ? 90 : 220);
+      const make = () => ({ x: Math.random() * w, y: Math.random() * h, z: Math.random() * .9 + .1, tw: Math.random() * Math.PI * 2 });
+      white = []; gold = [];
+      for (let i = 0; i < n; i++) (Math.random() < .18 ? gold : white).push(make());
     }
     resize(); addEventListener('resize', resize);
+    function paint(list, color, scrollY, t, mx, my) {
+      ctx.fillStyle = color;
+      for (const s of list) {
+        let y = (s.y - scrollY * s.z * .25) % h; if (y < 0) y += h;
+        ctx.globalAlpha = (.35 + .65 * Math.abs(Math.sin(t * .0012 * (1 + s.z) + s.tw))) * s.z;
+        const r = s.z * 1.3;
+        ctx.fillRect(s.x - mx * 18 * s.z, y - my * 18 * s.z, r, r);
+      }
+    }
     return {
       draw(scrollY, t) {
+        if (t - last < FRAME_MS) return; // 30fps is plenty for twinkling
+        last = t;
         ctx.clearRect(0, 0, w, h);
         const mx = (P.sx / w - .5), my = (P.sy / h - .5);
-        for (const s of stars) {
-          let y = (s.y - scrollY * s.z * .25) % h; if (y < 0) y += h;
-          const x = s.x - mx * 18 * s.z, yy = y - my * 18 * s.z;
-          const a = .35 + .65 * Math.abs(Math.sin(t * .0012 * (1 + s.z) + s.tw));
-          ctx.globalAlpha = a * s.z;
-          ctx.fillStyle = s.gold ? '#ffd76a' : '#e9e6ff';
-          const r = s.z * 1.3;
-          ctx.fillRect(x, yy, r, r);
-        }
-        if (!shoot && Math.random() < .004) shoot = { x: Math.random() * w * .8 + w * .2, y: Math.random() * h * .4, l: 0 };
+        paint(white, '#e9e6ff', scrollY, t, mx, my);
+        paint(gold, '#ffd76a', scrollY, t, mx, my);
+        if (!shoot && Math.random() < .008) shoot = { x: Math.random() * w * .8 + w * .2, y: Math.random() * h * .4, l: 0 };
         if (shoot) {
-          shoot.l += 14; const len = 120;
+          shoot.l += 28; const len = 120;
           const x = shoot.x - shoot.l, y = shoot.y + shoot.l * .45;
           const g = ctx.createLinearGradient(x, y, x + len, y - len * .45);
           g.addColorStop(0, 'rgba(255,223,126,.9)'); g.addColorStop(1, 'rgba(255,223,126,0)');
@@ -292,31 +312,43 @@
       } else if (n.nodeType === 1 && !n.classList.contains('chip-in')) walk(n);
     });
     walk(el);
-    return { el, words, lit: -1 };
+    return { el, words, lit: -1, top: 0, h: 0 };
   });
 
   /* ---------------- Magnetic buttons + tilt cards ---------------- */
+  /* Hover effects measure the element once on enter (not on every mouse move) and apply at most once per frame. */
+  function hoverTracker(el, apply, leave) {
+    let rect = null, y0 = 0, ev = null, raf = 0;
+    el.addEventListener('pointerenter', () => { rect = el.getBoundingClientRect(); y0 = lastY; });
+    el.addEventListener('pointermove', e => {
+      ev = e;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (!rect || !ev) return;
+        const top = rect.top - (lastY - y0); // account for scrolling while hovering
+        apply(ev.clientX - rect.left, ev.clientY - top, rect);
+      });
+    });
+    el.addEventListener('pointerleave', () => { cancelAnimationFrame(raf); raf = 0; rect = null; leave(); });
+  }
   function bindInteractive(root) {
     if (!finePointer) return;
     qsa('.btn, [data-magnetic]', root).forEach(b => {
       if (b.dataset.bound) return; b.dataset.bound = 1;
-      b.addEventListener('pointermove', e => {
-        const r = b.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      hoverTracker(b, (x, y, r) => {
         b.style.setProperty('--tx', ((x - r.width / 2) * .22).toFixed(1) + 'px');
         b.style.setProperty('--ty', ((y - r.height / 2) * .3).toFixed(1) + 'px');
-        b.style.setProperty('--bx', x + 'px'); b.style.setProperty('--by', y + 'px');
-      });
-      b.addEventListener('pointerleave', () => { b.style.setProperty('--tx', '0px'); b.style.setProperty('--ty', '0px'); });
+        b.style.setProperty('--bx', x.toFixed(0) + 'px'); b.style.setProperty('--by', y.toFixed(0) + 'px');
+      }, () => { b.style.setProperty('--tx', '0px'); b.style.setProperty('--ty', '0px'); });
     });
     qsa('.card', root).forEach(c => {
       if (c.dataset.bound) return; c.dataset.bound = 1;
       const tilt = c.hasAttribute('data-tilt');
-      c.addEventListener('pointermove', e => {
-        const r = c.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-        c.style.setProperty('--x', x + 'px'); c.style.setProperty('--y', y + 'px');
+      hoverTracker(c, (x, y, r) => {
+        c.style.setProperty('--x', x.toFixed(0) + 'px'); c.style.setProperty('--y', y.toFixed(0) + 'px');
         if (tilt) { c.style.transition = 'transform .15s ease-out, border-color .4s, box-shadow .4s'; c.style.transform = `perspective(900px) rotateX(${((.5 - y / r.height) * 7).toFixed(2)}deg) rotateY(${((x / r.width - .5) * 9).toFixed(2)}deg) scale(1.015)`; }
-      });
-      c.addEventListener('pointerleave', () => { if (tilt) { c.style.transition = ''; c.style.transform = ''; } });
+      }, () => { if (tilt) { c.style.transition = ''; c.style.transform = ''; } });
     });
   }
 
@@ -468,7 +500,7 @@
         el.innerHTML = `<div class="helix-empty"><p class="lead" style="margin:0">${el.dataset.empty || 'Coming soon.'}</p><a class="btn" href="contact.php"><span>Talk to us</span><span class="ico">${icon('arrow')}</span></a></div>`;
         el.style.height = 'auto'; this.dead = true; return;
       }
-      // Fill the spiral: repeat entries so it never looks empty. Only first copies get a live iframe.
+      // Fill the spiral: repeat entries so it never looks empty.
       const min = innerWidth < 640 ? 10 : 14;
       // Each repeat is rotated by a different offset so the same entry never stacks in one column.
       const u = src.length, total = Math.max(min, u);
@@ -477,14 +509,46 @@
         return { it: src[i], i, dup: k >= u };
       });
       this.cards = this.items.map(({ it, i, dup }, k) => this.card(it, i, dup, k));
-      this.rot = 0; this.vel = 0; this.base = -.12; this.drag = null; this.front = -1; this.active = false; this.phase = 0; this.loaded = false;
-      this.layout(); addEventListener('resize', () => this.layout());
+      this.rot = 0; this.vel = 0; this.base = -.12; this.drag = null; this.front = -1; this.active = false; this.phase = 0;
+      this.live = null; this.liveTimer = 0;
+      let rw = innerWidth;
+      this.layout(); addEventListener('resize', () => { if (innerWidth !== rw) { rw = innerWidth; this.layout(); } });
       this.bind();
       new IntersectionObserver(([en]) => {
         this.active = en.isIntersecting;
-        if (this.active && !this.loaded) { this.loaded = true; this.cards.forEach(c => { if (c.iframe) c.iframe.src = c.iframe.dataset.src; }); }
-      }, { rootMargin: '200px' }).observe(el);
+        if (!this.active) { this.endLive(); if (this.front >= 0) this.cards[this.front].a.classList.remove('front'); this.front = -1; }
+      }, { rootMargin: '100px' }).observe(el);
       this.timer = setInterval(() => this.alternate(), 3200);
+    }
+    /* Live website preview: only ONE iframe at a time, on the card facing the viewer.
+     * Dozens of live sites inside a rotating 3D scene is what overloads CPUs and makes iOS reload the tab. */
+    scheduleLive(c) {
+      clearTimeout(this.liveTimer);
+      if (TIER === 0 || !c || !c.canEmbed) return;
+      this.liveTimer = setTimeout(() => {
+        if (!this.active || this.drag || this.cards[this.front] !== c) return;
+        this.endLive();
+        const f = h('iframe');
+        f.title = c.it.name + ' website preview';
+        f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+        f.setAttribute('tabindex', '-1'); f.setAttribute('aria-hidden', 'true');
+        f.referrerPolicy = 'no-referrer';
+        f.style.transform = `scale(${this.cw / 1280})`;
+        f.addEventListener('load', () => f.classList.add('ready'), { once: true });
+        f.src = c.it.url;
+        c.site.appendChild(f);
+        c.a.classList.add('is-live', 'show-site');
+        this.live = { c, f };
+      }, TIER === 2 ? 700 : 1200);
+    }
+    endLive() {
+      clearTimeout(this.liveTimer);
+      if (!this.live) return;
+      const { c, f } = this.live; this.live = null;
+      c.a.classList.remove('is-live');
+      c.a.classList.toggle('show-site', (c.k + this.phase) % 2 === 0);
+      f.src = 'about:blank'; // stop the site's scripts and free its memory right away
+      setTimeout(() => f.remove(), 950);
     }
     card(it, i, dup, k) {
       const a = h('a', 'helix-card');
@@ -499,16 +563,9 @@
       const site = h('div', 'hc-site');
       site.innerHTML = `<div class="hc-chrome"><i></i><i></i><i></i><span></span></div>`;
       qs('span', site).textContent = domain(it.url) || it.name;
-      let iframe = null;
-      if (it.preview) { const img = h('img'); img.src = it.preview; img.alt = ''; img.loading = 'lazy'; img.draggable = false; site.appendChild(img); }
-      else if (it.url && it.embed !== false && !dup) {
-        iframe = h('iframe'); iframe.dataset.src = it.url; iframe.title = it.name + ' website preview';
-        iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-        iframe.setAttribute('tabindex', '-1'); iframe.setAttribute('aria-hidden', 'true');
-        iframe.referrerPolicy = 'no-referrer';
-        const fb = h('div', 'fallback'); fb.innerHTML = '<div></div>'; fb.firstChild.textContent = it.name; const sm = h('small', '', domain(it.url)); fb.firstChild.appendChild(sm);
-        site.append(fb, iframe);
-      } else {
+      // Non-live cards show the uploaded screenshot, or a branded site card. The live iframe is added on demand.
+      if (it.preview) { const img = h('img'); img.src = it.preview; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.draggable = false; site.appendChild(img); }
+      else {
         const fb = h('div', 'fallback'); fb.innerHTML = '<div></div>'; fb.firstChild.textContent = it.name; const sm = h('small', '', domain(it.url) || it.tagline || ''); fb.firstChild.appendChild(sm);
         site.appendChild(fb);
       }
@@ -516,9 +573,9 @@
       inner.append(logo, site, cap); a.appendChild(inner);
       a.addEventListener('click', e => { if (this.moved) { e.preventDefault(); } else if (!it.url) e.preventDefault(); });
       a.addEventListener('pointerenter', () => { a.classList.add('show-site'); });
-      a.addEventListener('pointerleave', () => { a.classList.toggle('show-site', (k + this.phase) % 2 === 0); });
+      a.addEventListener('pointerleave', () => { if (!a.classList.contains('is-live')) a.classList.toggle('show-site', (k + this.phase) % 2 === 0); });
       this.stage.appendChild(a);
-      return { a, iframe, k };
+      return { a, site, it, k, canEmbed: !!it.url && it.embed !== false && !it.preview, op: '', pe: '' };
     }
     layout() {
       const w = this.el.clientWidth, H = this.el.clientHeight;
@@ -529,8 +586,8 @@
       this.step = 360 / this.perTurn;
       this.T = this.cards.length * this.step;
       this.pitch = clamp((H - ch * 1.3) / (this.T / 360), ch * 1.15, ch * 2.2);
-      this.cards.forEach(c => c.a.style.setProperty('--sc', (cw / 1280).toFixed(4)));
-      this.cards.forEach(c => { const f = qs('iframe', c.a); if (f) f.style.transform = `scale(${cw / 1280})`; });
+      this.cw = cw;
+      if (this.live) this.live.f.style.transform = `scale(${cw / 1280})`;
     }
     bind() {
       const el = this.el;
@@ -543,14 +600,20 @@
         if (Math.abs(e.clientX - this.drag.x) > 6) this.moved = true;
         this.rot += dx * .28; this.vel = dx * .28;
       });
-      addEventListener('pointerup', () => { if (this.drag) { this.drag = null; setTimeout(() => this.moved = false, 30); } });
+      addEventListener('pointerup', () => {
+        if (!this.drag) return;
+        this.drag = null; setTimeout(() => this.moved = false, 30);
+        if (!this.live && this.front >= 0) this.scheduleLive(this.cards[this.front]);
+      });
       el.addEventListener('pointerenter', () => { this.hover = true; });
       el.addEventListener('pointerleave', () => { this.hover = false; });
     }
     alternate() {
       if (!this.active || this.dead) return;
       this.phase ^= 1;
-      this.cards.forEach((c, i) => setTimeout(() => { if (!c.a.matches(':hover')) c.a.classList.toggle('show-site', (c.k + this.phase) % 2 === 0); }, i * 70));
+      this.cards.forEach((c, i) => setTimeout(() => {
+        if (!c.a.matches(':hover') && !c.a.classList.contains('is-live')) c.a.classList.toggle('show-site', (c.k + this.phase) % 2 === 0);
+      }, i * 70));
     }
     frame(scrollVel) {
       if (!this.active || this.dead) return;
@@ -567,8 +630,11 @@
         const rad = a * Math.PI / 180, depth = Math.cos(rad);
         const edge = clamp((half - Math.abs(a)) / fadeW);
         c.a.style.transform = `translate3d(0, ${y.toFixed(1)}px, 0) rotateY(${a.toFixed(2)}deg) translateZ(${this.R}px)`;
-        c.a.style.opacity = (edge * (.28 + .72 * (depth + 1) / 2)).toFixed(3);
-        c.a.style.pointerEvents = edge > .5 && depth > -.2 ? '' : 'none';
+        // Only touch opacity / pointer-events when they actually change: fewer style invalidations per frame.
+        const op = (edge * (.28 + .72 * (depth + 1) / 2)).toFixed(2);
+        if (op !== c.op) { c.op = op; c.a.style.opacity = op; }
+        const pe = edge > .5 && depth > -.2 ? '' : 'none';
+        if (pe !== c.pe) { c.pe = pe; c.a.style.pointerEvents = pe; }
         const back = depth < 0;
         if (back !== c.back) { c.back = back; c.a.classList.toggle('back', back); }
         const dist = Math.abs(((a % 360) + 540) % 360 - 180);
@@ -578,6 +644,8 @@
         if (this.front >= 0) this.cards[this.front].a.classList.remove('front');
         if (front >= 0) { this.cards[front].a.classList.add('front'); if (this.front >= 0) Sfx.tick(); }
         this.front = front;
+        if (this.live && this.live.c !== this.cards[front]) this.endLive();
+        this.scheduleLive(this.cards[front]);
       }
     }
   }
@@ -601,10 +669,12 @@
       orbits: qs('.orbits', intro), tag: qs('.intro-tag', intro), meta: qs('.intro-meta', intro),
     };
   }
-  function updateIntro() {
+  let lastIntroP = -1;
+  function updateIntro(y) {
     if (!introParts) return;
-    const r = intro.getBoundingClientRect();
-    const p = reduced ? .8 : clamp(-r.top / (r.height - innerHeight));
+    const p = reduced ? .8 : +clamp((y - introBox.top) / (introBox.h - innerHeight)).toFixed(4);
+    if (p === lastIntroP) return; // nothing moved: no writes at all
+    lastIntroP = p;
     const I = introParts, W = innerWidth, H = innerHeight;
     const p1 = easeOut(clamp(p / .38));
     I.chars.forEach(c => {
@@ -693,36 +763,68 @@
     requestAnimationFrame(tick);
   } else ready();
 
-  /* ---------------- Main loop ---------------- */
-  let wander = 0;
-  const root = document.documentElement;
+  /* ---------------- Main loop ----------------
+   * Rules that keep this cheap:
+   *  - never read layout (getBoundingClientRect) inside the loop: positions are measured once and cached
+   *  - never write CSS variables on <html>: that restyles the whole page every frame
+   *  - only write what changed, and skip work when nothing moves              */
+  const spot = qs('.glyph-spot'), spotInner = spot ? qs('.glyphs', spot) : null;
+  const SPOT_R = spot ? spot.offsetWidth / 2 : 0;
+  let wander = 0, introBox = null;
+  function measure() {
+    const y = lenis ? lenis.scroll : scrollY;
+    if (intro) { const r = intro.getBoundingClientRect(); introBox = { top: r.top + y, h: intro.offsetHeight }; }
+    scrubs.forEach(s => { const r = s.el.getBoundingClientRect(); s.top = r.top + y; s.h = r.height; s.lit = -1; });
+    lastIntroP = -1;
+  }
+  let mTimer = 0;
+  const remeasure = () => { clearTimeout(mTimer); mTimer = setTimeout(measure, 120); };
+  measure();
+  addEventListener('resize', remeasure);
+  addEventListener('load', remeasure);
+  document.fonts?.ready.then(remeasure);
+  if (window.ResizeObserver) new ResizeObserver(remeasure).observe(document.body);
+
+  const near = (a, b) => Math.abs(a - b) < .1;
   function loop(t) {
     lenis?.raf(t);
     const y = lenis ? lenis.scroll : scrollY;
     const dy = y - lastY; lastY = y;
     vel = lerp(vel, dy, .2);
+    if (Math.abs(vel) < .01) vel = 0;
 
-    // pointer smoothing
-    if (!finePointer) { wander += .004; P.x = innerWidth * (.5 + .38 * Math.sin(wander * 1.3)); P.y = innerHeight * (.5 + .34 * Math.sin(wander * 2.1 + 1)); }
-    P.sx = lerp(P.sx, P.x, .35); P.sy = lerp(P.sy, P.y, .35);
-    P.gx = lerp(P.gx, P.x, .08); P.gy = lerp(P.gy, P.y, .08);
-    if (dot) dot.style.transform = `translate3d(${P.x}px, ${P.y}px, 0)`;
-    if (ring) ring.style.transform = `translate3d(${P.sx}px, ${P.sy}px, 0)`;
-    if (glow) glow.style.transform = `translate3d(${P.gx}px, ${P.gy}px, 0)`;
-    root.style.setProperty('--mx', P.gx.toFixed(1) + 'px');
-    root.style.setProperty('--my', P.gy.toFixed(1) + 'px');
+    // pointer smoothing (touch devices get a slowly wandering spotlight instead)
+    if (!finePointer) { wander += .003; P.x = innerWidth * (.5 + .38 * Math.sin(wander * 1.3)); P.y = innerHeight * (.5 + .34 * Math.sin(wander * 2.1 + 1)); }
+    const settled = near(P.sx, P.x) && near(P.sy, P.y) && near(P.gx, P.x) && near(P.gy, P.y);
+    if (!settled) {
+      P.sx = lerp(P.sx, P.x, .35); P.sy = lerp(P.sy, P.y, .35);
+      P.gx = lerp(P.gx, P.x, .08); P.gy = lerp(P.gy, P.y, .08);
+      if (dot) dot.style.transform = `translate3d(${P.x}px, ${P.y}px, 0)`;
+      if (ring) ring.style.transform = `translate3d(${P.sx.toFixed(1)}px, ${P.sy.toFixed(1)}px, 0)`;
+      if (glow) glow.style.transform = `translate3d(${P.gx.toFixed(1)}px, ${P.gy.toFixed(1)}px, 0)`;
+      // Spotlight = a round window that follows the glow, with the lit glyphs counter-moved inside it.
+      // Both are plain transforms, so the GPU just slides two pre-painted layers. No repaint.
+      if (spot) {
+        spot.style.transform = `translate3d(${(P.gx - SPOT_R).toFixed(1)}px, ${(P.gy - SPOT_R).toFixed(1)}px, 0)`;
+        spotInner.style.transform = `translate3d(${(SPOT_R - P.gx).toFixed(1)}px, ${(SPOT_R - P.gy).toFixed(1)}px, 0)`;
+      }
+    }
 
     // header
-    if (header) header.classList.toggle('is-hidden', y > 260 && dy > 2 && !document.body.classList.contains('menu-open') ? true : (dy < -2 ? false : header.classList.contains('is-hidden')));
+    if (header && dy) {
+      const hide = y > 260 && dy > 2 && !document.body.classList.contains('menu-open') ? true : (dy < -2 ? false : header.classList.contains('is-hidden'));
+      if (hide !== header.classList.contains('is-hidden')) header.classList.toggle('is-hidden', hide);
+    }
 
     if (Math.abs(vel) > 14) Sfx.whoosh(Math.abs(vel) / 60);
     if (!reduced) Stars.draw(y, t);
-    updateIntro();
+    if (introBox) updateIntro(y);
     helices.forEach(hx => hx.frame(vel));
 
-    scrubs.forEach(s => {
-      const r = s.el.getBoundingClientRect();
-      const p = clamp((innerHeight * .85 - r.top) / (r.height + innerHeight * .4));
+    if (dy || scrubs.some(s => s.lit < 0)) scrubs.forEach(s => {
+      const top = s.top - y;
+      if (top > innerHeight || top + s.h < 0) return;
+      const p = clamp((innerHeight * .85 - top) / (s.h + innerHeight * .4));
       const n = Math.round(p * s.words.length);
       if (n !== s.lit) { s.words.forEach((w, i) => w.classList.toggle('lit', i < n)); s.lit = n; }
     });
