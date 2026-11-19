@@ -1,0 +1,32 @@
+{
+  "partner": [
+    {"name": "Savanna Systems", "url": "https://example.com", "logo": "", "tagline": "Distribution partner · Demo entry", "accent": "#22e3c9"},
+    {"name": "Kilima Tech", "url": "https://example.com", "logo": "", "tagline": "Distribution partner · Demo entry", "accent": "#ff4fa3"},
+    {"name": "Pwani Digital", "url": "https://example.com", "logo": "", "tagline": "Distribution partner · Demo entry", "accent": "#8c6bff"},
+    {"name": "Mara Solutions", "url": "https://example.com", "logo": "", "tagline": "Distribution partner · Demo entry", "accent": "#4fc3ff"},
+    {"name": "Rift Networks", "url": "https://example.com", "logo": "", "tagline": "Distribution partner · Demo entry", "accent": "#ff9f1c"},
+    {"name": "Jua Labs", "url": "https://example.com", "logo": "", "tagline": "Distribution partner · Demo entry", "accent": "#c6ff4f"}
+  ],
+  "client": [
+    {"name": "Baobab Retail", "url": "https://example.com", "logo": "", "tagline": "Client · Demo entry", "accent": "#f4c542"},
+    {"name": "Simba Logistics", "url": "https://example.com", "logo": "", "tagline": "Client · Demo entry", "accent": "#22e3c9"},
+    {"name": "Nyota Clinics", "url": "https://example.com", "logo": "", "tagline": "Client · Demo entry", "accent": "#ff4fa3"},
+    {"name": "Tembo Sacco", "url": "https://example.com", "logo": "", "tagline": "Client · Demo entry", "accent": "#8c6bff"},
+    {"name": "Kahawa House", "url": "https://example.com", "logo": "", "tagline": "Client · Demo entry", "accent": "#ff9f1c"},
+    {"name": "Zuri Academy", "url": "https://example.com", "logo": "", "tagline": "Client · Demo entry", "accent": "#4fc3ff"}
+  ],
+  "product": [
+    {"name": "Mfuko POS", "url": "https://example.com", "logo": "", "tagline": "Point of sale built for African SMEs: M-Pesa, credit sales, split payments, multi-store stock and AI insights.", "status": "Live", "category": "Retail", "size": "lg", "accent": "#f4c542"},
+    {"name": "Nario ERP", "url": "", "logo": "", "tagline": "Finance, inventory, HR and procurement in one modular engine.", "status": "In build", "category": "Enterprise", "size": "wide", "accent": "#22e3c9"},
+    {"name": "Nario Insights", "url": "", "logo": "", "tagline": "AI analyst that turns your sales data into plain-language decisions.", "status": "R&D", "category": "AI & Data", "size": "tall", "accent": "#8c6bff"},
+    {"name": "Nario Chama", "url": "", "logo": "", "tagline": "Contributions, loans and payouts for chamas and SACCOs.", "status": "In build", "category": "Fintech", "size": "sm", "accent": "#ff4fa3"},
+    {"name": "Nario School", "url": "", "logo": "", "tagline": "Fees, results and parent updates for schools.", "status": "R&D", "category": "Education", "size": "sm", "accent": "#4fc3ff"},
+    {"name": "Nario Clinic", "url": "", "logo": "", "tagline": "Patient records, billing and pharmacy for small clinics.", "status": "R&D", "category": "Health", "size": "wide", "accent": "#ff9f1c"},
+    {"name": "Nario Fleet", "url": "", "logo": "", "tagline": "Trips, fuel and driver tracking for fleets and matatu SACCOs.", "status": "Concept", "category": "Logistics", "size": "sm", "accent": "#c6ff4f"}
+  ],
+  "game": [
+    {"name": "Turkana: First Steps", "url": "", "logo": "", "tagline": "Survival-exploration across ancient Lake Turkana.", "status": "In development", "category": "PC · Steam", "accent": "#f4c542"},
+    {"name": "Matatu Rush", "url": "", "logo": "", "tagline": "Arcade runner through Nairobi traffic. Loud, fast, colourful.", "status": "Prototype", "category": "iOS · Android", "accent": "#ff4fa3"},
+    {"name": "Savanna Legends", "url": "", "logo": "", "tagline": "Card battler built on African myths and heroes.", "status": "Concept", "category": "PC · Mobile", "accent": "#22e3c9"}
+  ]
+}

@@ -1,0 +1,8 @@
+# Uploaded images only: never execute scripts here
+Options -Indexes
+<FilesMatch "\.(php|phtml|phar|php\d|pl|py|cgi|sh|svg|html?)$">
+  Require all denied
+</FilesMatch>
+<IfModule mod_php.c>
+  php_flag engine off
+</IfModule>
