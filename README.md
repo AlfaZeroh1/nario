@@ -56,3 +56,12 @@ uploads/    logos and covers (scripts can't run here)
 - Uploads are checked by MIME type and decoded as images. Only PNG, JPG, WEBP and GIF are accepted, with random filenames.
 - `includes/`, `data/` and `config.php` are blocked from the web by `.htaccess`.
 - Contact form: honeypot field plus a 30-second rate limit. To also get each message by email, set `'send_mail' => true` in `config.php` (needs a working PHP `mail()` or SMTP relay).
+
+## Performance rules (keep these when adding effects)
+The site is tuned to hold about 60fps on laptops and to stay inside iPhone memory limits.
+- **One live website at a time.** The spirals load a live site in an iframe only on the card facing the viewer, after it settles at the front, and unload it when the card turns away. Every other card shows its screenshot or a branded site card. Low-end devices (data-saver, ≤2 GB RAM) never load live frames.
+- **Animate only `transform` and `opacity`.** Animating blur, blend modes, masks, box-shadow, background-position, `top` or `height` repaints every frame.
+- **No layout reads in the animation loop.** Positions are measured once and re-measured on resize. Nothing writes CSS variables on `<html>` per frame.
+- **The cursor spotlight is a sliding window,** not a moving mask: two pre-painted layers move with transforms.
+- **Stars** redraw at 30fps on a canvas capped at 1.5× pixel ratio (1× on phones).
+- **Device tiers** are classes on `<html>`: `tier-2` desktop, `tier-1` phone/tablet (`lite`), `tier-0` low-end. Use them in CSS to tone effects down.

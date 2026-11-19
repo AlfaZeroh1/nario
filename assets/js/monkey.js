@@ -69,16 +69,30 @@
   }
 
   const monkeys = [];
-  let px = window.innerWidth / 2, py = window.innerHeight / 3;
+  let px = window.innerWidth / 2, py = window.innerHeight / 3, dirty = true;
+  // Only monkeys on screen are tracked; the rest cost nothing.
+  const vis = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+    entries.forEach(en => { const m = monkeys.find(k => k.el === en.target); if (m) { m.visible = en.isIntersecting; dirty = true; } });
+  }) : null;
 
   function mount(root) {
     (root || document).querySelectorAll('[data-monkey]:not([data-mounted])').forEach(el => {
       el.dataset.mounted = '1';
       el.innerHTML = monkeySVG();
       const svg = el.firstElementChild;
-      monkeys.push({ el, svg, pupils: svg.querySelectorAll('.mk-pupil'), cur: { x: 0, y: 0 } });
-      scheduleBlink(svg);
+      const m = { el, svg, pupils: svg.querySelectorAll('.mk-pupil'), cur: { x: 0, y: 0 }, visible: !vis };
+      monkeys.push(m);
+      if (vis) vis.observe(el);
+      scheduleBlink(m);
+      if (el.closest('.intro-monkey, .hero-monkey, .pl-monkey')) scheduleShine(svg);
     });
+  }
+  // The gold sheen runs only on the big monkeys, now and then, instead of looping forever.
+  function scheduleShine(svg) {
+    setTimeout(() => {
+      if (!document.hidden) { svg.classList.add('shine'); setTimeout(() => svg.classList.remove('shine'), 1900); }
+      scheduleShine(svg);
+    }, 5000 + Math.random() * 4000);
   }
 
   function blink(svg, twice) {
@@ -88,27 +102,37 @@
       if (twice) setTimeout(() => blink(svg, false), 160);
     }, 130);
   }
-  function scheduleBlink(svg) {
+  function scheduleBlink(m) {
     setTimeout(() => {
-      if (!document.hidden) blink(svg, Math.random() < 0.25);
-      scheduleBlink(svg);
+      if (!document.hidden && m.visible) blink(m.svg, Math.random() < 0.25);
+      scheduleBlink(m);
     }, 2200 + Math.random() * 4200);
   }
 
-  window.addEventListener('pointermove', e => { px = e.clientX; py = e.clientY; }, { passive: true });
-  window.addEventListener('touchmove', e => { if (e.touches[0]) { px = e.touches[0].clientX; py = e.touches[0].clientY; } }, { passive: true });
+  window.addEventListener('pointermove', e => { px = e.clientX; py = e.clientY; dirty = true; }, { passive: true });
+  window.addEventListener('touchmove', e => { if (e.touches[0]) { px = e.touches[0].clientX; py = e.touches[0].clientY; dirty = true; } }, { passive: true });
+  window.addEventListener('scroll', () => { dirty = true; }, { passive: true });
+  window.addEventListener('resize', () => { dirty = true; });
 
+  // Runs first in each frame (this script loads before main.js), so its layout reads never collide with style writes.
   function track() {
     for (const m of monkeys) {
-      const r = m.svg.getBoundingClientRect();
-      if (!r.width || r.bottom < 0 || r.top > innerHeight) continue;
-      const cx = r.left + r.width / 2, cy = r.top + r.height * 0.4;
-      const dx = px - cx, dy = py - cy, d = Math.hypot(dx, dy) || 1;
-      const k = Math.min(d / 260, 1);
-      const tx = (dx / d) * 15 * k, ty = (dy / d) * 5 * k;
-      m.cur.x += (tx - m.cur.x) * 0.18; m.cur.y += (ty - m.cur.y) * 0.18;
-      m.pupils.forEach(p => p.setAttribute('transform', `translate(${m.cur.x.toFixed(2)} ${m.cur.y.toFixed(2)})`));
+      if (!m.visible) continue;
+      if (dirty || !m.target) {
+        const r = m.svg.getBoundingClientRect();
+        if (!r.width) continue;
+        const cx = r.left + r.width / 2, cy = r.top + r.height * 0.4;
+        const dx = px - cx, dy = py - cy, d = Math.hypot(dx, dy) || 1;
+        const k = Math.min(d / 260, 1);
+        m.target = { x: (dx / d) * 15 * k, y: (dy / d) * 5 * k };
+      }
+      const ex = m.target.x - m.cur.x, ey = m.target.y - m.cur.y;
+      if (Math.abs(ex) < 0.03 && Math.abs(ey) < 0.03) continue; // eyes have arrived: no repaint
+      m.cur.x += ex * 0.18; m.cur.y += ey * 0.18;
+      const tr = `translate(${m.cur.x.toFixed(2)} ${m.cur.y.toFixed(2)})`;
+      m.pupils.forEach(p => p.setAttribute('transform', tr));
     }
+    dirty = false;
     requestAnimationFrame(track);
   }
   requestAnimationFrame(track);
